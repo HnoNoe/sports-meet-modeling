@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
-"""
-===============================================================================
-公平指数模块 v2：大加权综合指数 + 全维度敏感性分析
-赛题：运动会优化比赛模式探索（问题 1 配套评估工具）
+"""公平指数：基尼、泰尔、标准差、极差率四度量 × 规模、性别、特长生三属性，
+两层加权合成综合指数 F（[0,1]，越小越公平），并做全权重敏感性分析。
 
-AI 使用声明：本文件中以 >>> AI-GENERATED BLOCK 标注的代码块为重复性模板
-代码（不平等度量标准公式、随机采样、绘图等），由 Kimi AI（Moonshot AI 模型）
-于 2026 年 11 月 14 日 22 时生成，经人工核对；指标体系、归一化方式、两层
-加权结构与敏感性方案由人工设计。
-===============================================================================
+注：均值固定时变异系数与标准差等价，故度量层不含变异系数；
+男生人数可由总人数与女生人数推出，属性层不重复纳入。
+
+AI 声明：标注 >>> AI-GENERATED BLOCK 的代码块由 Kimi AI（Moonshot AI 模型）
+于 2026-11-14 22 时生成，已经人工核对；指标体系与加权结构由人工设计。
 """
 import sys
 from pathlib import Path
@@ -26,7 +24,7 @@ ATTR_NAMES = ["规模", "性别", "特长生"]
 ATTR_COLS = ["总人数", "女生人数", "特长生数"]
 
 
-# >>> AI-GENERATED BLOCK: 四个不平等度量函数（标准公式实现）
+# >>> AI-GENERATED BLOCK
 def gini(x: np.ndarray) -> float:
     x = np.asarray(x, dtype=float)
     if x.sum() == 0:
@@ -66,20 +64,13 @@ METRICS = [gini, theil, std_norm, range_norm]
 # <<< AI-GENERATED BLOCK END
 
 
-# --- 人设计：两层大加权综合指数 ---
 def composite(x: np.ndarray, w: np.ndarray) -> float:
-    """单一属性向量的四维加权指数。"""
     vals = np.array([f(x) for f in METRICS])
     return float(np.dot(np.asarray(w, dtype=float), vals))
 
 
 def fairness_score(vectors: dict, w: np.ndarray, lam: np.ndarray) -> dict:
-    """
-    vectors: {属性名: 各组数值向量}
-    w:   4 维度量权重（和为 1）
-    lam: 3 维属性权重（和为 1）
-    返回各属性指数与综合指数（越小越公平）。
-    """
+    """vectors 为 {属性名: 各组数值向量}；w 与 lam 分别为度量、属性权重。"""
     per_attr = {a: composite(vectors[a], w) for a in ATTR_NAMES}
     f_total = float(np.dot(np.asarray(lam, dtype=float),
                            [per_attr[a] for a in ATTR_NAMES]))
@@ -87,23 +78,22 @@ def fairness_score(vectors: dict, w: np.ndarray, lam: np.ndarray) -> dict:
 
 
 def load_baseline():
-    """基线场景：现状 = 20 个学院各自成组。"""
+    """现状基线：20 个学院各自成组。"""
     college = pd.read_csv(DATA / "college_clean.csv", encoding="utf-8-sig")
     return {a: college[c].to_numpy() for a, c in zip(ATTR_NAMES, ATTR_COLS)}
 
 
 def sensitivity_analysis(vectors: dict):
-    """全维度敏感性分析（7 个权重全部扰动）。"""
-    # --- 单维扰动（OAT）：度量权重 4 个 + 属性权重 3 个 ---
+    """7 个权重逐一扰动（OAT）+ Dirichlet 联合采样 5000 次。"""
     grid = np.linspace(0.05, 0.95, 19)
     oat = []
-    for i, mname in enumerate(METRIC_NAMES):          # 扰动度量权重 w_i
+    for i, mname in enumerate(METRIC_NAMES):
         for wi in grid:
             w = np.full(4, (1 - wi) / 3); w[i] = wi
             lam = np.full(3, 1 / 3)
             oat.append((f"度量·{mname}", wi,
                         fairness_score(vectors, w, lam)["F_综合"]))
-    for j, aname in enumerate(ATTR_NAMES):            # 扰动属性权重 λ_j
+    for j, aname in enumerate(ATTR_NAMES):
         for lj in grid:
             lam = np.full(3, (1 - lj) / 2); lam[j] = lj
             w = np.full(4, 0.25)
@@ -111,7 +101,7 @@ def sensitivity_analysis(vectors: dict):
                         fairness_score(vectors, w, lam)["F_综合"]))
     df_oat = pd.DataFrame(oat, columns=["权重", "取值", "F_综合"])
 
-    # >>> AI-GENERATED BLOCK: 全局联合采样（λ 与 w 各自 Dirichlet）
+    # >>> AI-GENERATED BLOCK
     rng = np.random.default_rng(42)
     n = 5000
     W = rng.dirichlet(np.ones(4), size=n)
@@ -127,7 +117,7 @@ def sensitivity_analysis(vectors: dict):
     return df_oat, df_glob
 
 
-# >>> AI-GENERATED BLOCK: 敏感性分析绘图（matplotlib 模板代码）
+# >>> AI-GENERATED BLOCK
 def plot_sensitivity(df_oat: pd.DataFrame, df_glob: pd.DataFrame, out: Path):
     import matplotlib
     matplotlib.use("Agg")
@@ -136,8 +126,6 @@ def plot_sensitivity(df_oat: pd.DataFrame, df_glob: pd.DataFrame, out: Path):
     plt.rcParams["axes.unicode_minus"] = False
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
-
-    # 左：7 个权重的单维扰动曲线
     colors = plt.cm.tab10.colors
     for k, (name, sub) in enumerate(df_oat.groupby("权重")):
         ls = "-" if name.startswith("度量") else "--"
@@ -149,7 +137,6 @@ def plot_sensitivity(df_oat: pd.DataFrame, df_glob: pd.DataFrame, out: Path):
     axes[0].legend(fontsize=8, ncol=2)
     axes[0].grid(alpha=0.3)
 
-    # 右：全局采样分布
     s = df_glob["F_综合"]
     axes[1].hist(s, bins=50, color="#4C72B0", edgecolor="white")
     axes[1].axvline(s.mean(), color="red", ls="--", label=f"均值 {s.mean():.4f}")
@@ -171,12 +158,10 @@ def plot_sensitivity(df_oat: pd.DataFrame, df_glob: pd.DataFrame, out: Path):
 def main():
     vectors = load_baseline()
 
-    # --- 等权基准 ---
     w0, lam0 = np.full(4, 0.25), np.full(3, 1 / 3)
     base = fairness_score(vectors, w0, lam0)
 
     print("=== 基线场景：现状（20 学院各自成组）===")
-    print("各属性四维明细（行=度量，列=属性）：")
     print(f"{'度量':<8}" + "".join(f"{a:>10}" for a in ATTR_NAMES))
     for mname, f in zip(METRIC_NAMES, METRICS):
         print(f"{mname:<8}" + "".join(f"{f(vectors[a]):>10.4f}" for a in ATTR_NAMES))
@@ -185,10 +170,9 @@ def main():
         print(f" F_{a} = {base['per_attr'][a]:.4f}")
     print(f" F_综合 = {base['F_综合']:.4f}")
 
-    # --- 全维度敏感性 ---
     df_oat, df_glob = sensitivity_analysis(vectors)
 
-    print("\n=== 单维扰动：各权重对 F_综合 的影响幅度（降序）===")
+    print("\n=== 单维扰动影响幅度（降序）===")
     rows = []
     for name, sub in df_oat.groupby("权重"):
         s = sub["F_综合"]
@@ -196,19 +180,15 @@ def main():
     for name, lo, hi, rng_ in sorted(rows, key=lambda r: -r[3]):
         print(f" {name:<12} F ∈ [{lo:.4f}, {hi:.4f}]  波动 {rng_:.4f}")
 
-    print("\n=== 全局联合采样（Dirichlet, n=5000）===")
     s = df_glob["F_综合"]
-    print(f" F_综合: 均值 {s.mean():.4f}, 标准差 {s.std():.4f}, "
+    print(f"\n全局采样（n=5000）: 均值 {s.mean():.4f}, 标准差 {s.std():.4f}, "
           f"范围 [{s.min():.4f}, {s.max():.4f}]")
 
     fig_path = RESULTS / "fig_fairness_sensitivity.png"
     plot_sensitivity(df_oat, df_glob, fig_path)
     df_oat.to_csv(RESULTS / "sensitivity_oat.csv", index=False, encoding="utf-8-sig")
     df_glob.to_csv(RESULTS / "sensitivity_global.csv", index=False, encoding="utf-8-sig")
-
     print(f"\n已保存: {fig_path}")
-    print(f"已保存: {RESULTS / 'sensitivity_oat.csv'}")
-    print(f"已保存: {RESULTS / 'sensitivity_global.csv'}")
 
 
 if __name__ == "__main__":
