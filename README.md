@@ -1,43 +1,27 @@
-# 运动会优化比赛模式探索（数学建模）
+# 运动会优化比赛模式探索
 
-大学运动会赛制改革建模：在积分规则（9,7,…,1）不变的前提下，通过学院合并、甲乙分级、
-特长生流动 / 加权积分等方式，实现"保障公平、兼顾效率"的赛制设计。
+在积分规则（9,7,…,1）不变的前提下，通过学院合并、甲乙分级、特长生流动
+或加权积分改革赛制，实现保障公平、兼顾效率的目标。
 
-## 目录结构
+## 目录
 
 ```
-├── data/               数据层
-│   ├── college_raw.csv     学院级原始数据（20 学院）
-│   ├── major_raw.csv       专业级原始数据（104 专业）
-│   ├── college_clean.csv   清洗后学院级数据（建模输入）
-│   └── major_clean.csv     清洗后专业级数据（建模输入）
-├── src/                代码层
-│   ├── data_clean.py       数据清洗与两级联动校验
-│   ├── fairness_index.py   公平指数：四维度量 × 三维属性大加权 + 全维度敏感性分析
-│   └── scoring_engine.py   赛制计分仿真引擎（蒙特卡洛模拟整届运动会）
-├── docs/               设计文档（人设计决策记录）
-│   ├── 01_题目分析.md      审题、四问拆解、技术路线、假设
-│   └── 02_问题1分析.md     Q1 读题分析与模型设计
-└── results/            结果（由脚本生成，不入库）
+data/      数据：college/major 两级，raw 为原始留档，clean 为建模输入
+src/       代码：data_clean 清洗，fairness_index 公平指数，
+           scoring_engine 赛制仿真，experiment 受控数值实验
+docs/      设计文档：审题与 Q1 分析
+results/   运行产出（不入库）
 ```
 
 ## 运行
 
 ```bash
-python src/data_clean.py        # 清洗：raw -> clean，含行内/跨表校验
-python src/fairness_index.py    # 公平指数基线 + 敏感性分析，输出到 results/
-python src/scoring_engine.py    # 赛制仿真：现状模式 1000 届运动会
+python src/data_clean.py       # 数据清洗与校验
+python src/fairness_index.py   # 公平指数基线与权重敏感性
+python src/experiment.py       # 受控实验：δ 敏感性扫描
 ```
 
-## 公平指数体系
+## AI 声明
 
-两层加权：F = Σ λ_a·F_a（属性：规模/性别/特长生），F_a = Σ w_m·f_m
-（度量：基尼系数、泰尔指数、标准差、极差率，均归一化到 [0,1]，0 = 完全均衡）。
-当前权重为等权占位，待候选方案矩阵产出后用熵权法客观赋权回填。
-
-## AI 使用声明
-
-本项目部分重复性模板代码（文件读写、标准公式实现、绘图等）由
-Kimi AI（Moonshot AI 模型）于 2026 年 11 月 14 日生成，在源文件中以
-`# >>> AI-GENERATED BLOCK` / `# <<< AI-GENERATED BLOCK END` 成对注释标注，
-均经人工核对；模型设计与参数取舍由队员完成。
+部分重复性模板代码（文件读写、标准公式、绘图）由 Kimi AI（Moonshot AI 模型）
+于 2026-11-14 生成，源文件中以 `>>> AI-GENERATED BLOCK` 标注，均经人工核对。
