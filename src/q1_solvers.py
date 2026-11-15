@@ -44,13 +44,22 @@ def scheme_F(groups: list, df: pd.DataFrame) -> float:
 
 
 def solve_milp(df: pd.DataFrame, K: int) -> list:
-    """整数规划：最小化各组总人数、女生人数与均值的相对 L1 偏差。"""
+    """整数规划：最小化各组总人数、女生人数与均值的相对 L1 偏差之和。
+
+    附带"最大院锁进组 0"的对称剪枝；60 秒时间上限，返回最优 incumbent。
+    注：极小极大式（min t）求解更快但解质量差（放任多数组平庸），
+    ε-约束式可给硬保证但 K=12 时 ε<17.4% 不可行（单学院组计数约束），
+    故主体采用 L1 式。
+    """
     from scipy.optimize import Bounds, LinearConstraint, milp
 
     s = df["总人数"].to_numpy(float)
     f = df["女生人数"].to_numpy(float)
     n = len(df)
     S_bar, F_bar = s.sum() / K, f.sum() / K
+
+    # df 已按总人数降序
+    assert df["总人数"].is_monotonic_decreasing
 
     n_x = n * K                      # x[i,j]: 学院 i 是否进组 j
     n_var = n_x + 2 * K              # u_j, v_j: 偏差辅助变量
@@ -61,7 +70,7 @@ def solve_milp(df: pd.DataFrame, K: int) -> list:
     rows, lbs, ubs = [], [], []
 
     # >>> AI-GENERATED BLOCK: 约束矩阵组装
-    A = np.zeros((2 * n + 4 * K + K, n_var))
+    A = np.zeros((2 * n + 4 * K + 1, n_var))
     r = 0
     for i in range(n):                          # 每学院恰进一组
         A[r, i * K:(i + 1) * K] = 1; rows.append(A[r].copy()); lbs.append(1); ubs.append(1); r += 1
@@ -75,13 +84,19 @@ def solve_milp(df: pd.DataFrame, K: int) -> list:
         idx = [i * K + j for i in range(n)]
         A[r, idx] = f / F_bar; A[r, n_x + K + j] = -1; rows.append(A[r].copy()); lbs.append(-np.inf); ubs.append(1); r += 1
         A[r, idx] = -f / F_bar; A[r, n_x + K + j] = -1; rows.append(A[r].copy()); lbs.append(-np.inf); ubs.append(-1); r += 1
+    A[r, 0] = 1; rows.append(A[r].copy()); lbs.append(1); ubs.append(1); r += 1   # 最大院 ∈ 组 0
     # <<< AI-GENERATED BLOCK END
 
     A = np.array(rows[:r])
     res = milp(c=c, constraints=LinearConstraint(A, lbs[:r], ubs[:r]),
-               bounds=Bounds(0, 1), integrality=np.r_[np.ones(n_x), np.zeros(2 * K)])
-    if not res.success:
+               bounds=Bounds(0, np.inf),
+               integrality=np.r_[np.ones(n_x), np.zeros(2 * K)],
+               options={"time_limit": 60})
+    if res.x is None:
         raise RuntimeError(f"MILP 求解失败(K={K}): {res.message}")
+    gap = getattr(res, "mip_gap", None)
+    if gap is not None and gap > 0.01:
+        print(f"  [MILP K={K}] 到达时间上限，当前间隙 {gap:.2%}")
 
     x = np.round(res.x[:n_x].reshape(n, K)).astype(int)
     groups = [[] for _ in range(K)]
